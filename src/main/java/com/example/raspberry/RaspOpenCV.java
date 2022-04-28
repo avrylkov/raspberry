@@ -33,23 +33,26 @@ public class RaspOpenCV implements Runnable {
         this.motor = motor;
     }
 
-    public static final String FACE_DETECTION_FILE = "face-detection.jpg";
-    public static final String FACE_NO_DETECTION_FILE = "face-no-detection.jpg";
-    public static final String FACE_DETECTION_FILE_2 = "face-detection_2.jpg";
+    public static final String FACE_DETECTION_FILE = "detect.jpg";
+    public static final String FACE_NO_DETECTION_FILE = "no-detect.jpg";
+    public static final String FACE_DETECTION_FILE_2 = "detect-2.jpg";
 
     private static final int W = 1280;
     private static final int H = 1024;
     private static final int W_CENTER = W/2;
     private static final int H_CENTER = H/2;
 
+    public static final int LED_DETECT = 0;
+    public static final int LED_NO_DETECT = 1;
     public static final int Y_SERVO_CAMERA = 2;
     public static final int X_SERVO_CAMERA = 3;
-
-    private static final float X_SERVO_MIN = 0.08f;
-    private static final float X_SERVO_MAX = 0.15f;
+    // X
+    private static final float X_SERVO_MIN = 0.1f; //0.08f
+    private static final float X_SERVO_MAX = 0.134f; // 0.15f
+    private static final float X_SERVO_MIDDLE_START = 0.117f;
+    // Y
     private static final float Y_SERVO_MIN = 0.029f;
     private static final float Y_SERVO_MAX = 0.05f;
-    private static final float X_SERVO_MIDDLE_START = 0.117f;
     private static final float Y_SERVO_MIDDLE_START = 0.035f;
 
     private static final float FULL_X = 0.04f;
@@ -90,13 +93,21 @@ public class RaspOpenCV implements Runnable {
                 logger.info(String.format("detected %s faces", faceDetections.toArray().length));
                 AtomicReference<String> direction = new AtomicReference<>("");
                 final boolean isFaceDetect = faceDetections.toArray().length > 0;
-                if (!isFaceDetect) {
+                if (applicationConfig.isSavePictureNoDetect() && !isFaceDetect) {
                     String filename = applicationConfig.getHome() + FACE_NO_DETECTION_FILE;
                     Imgcodecs.imwrite(filename, matrixGray);
                 }
-
+                setLedDetect(isFaceDetect);
                 // Draw a bounding box around each face.
-                getFaceRectMax(faceDetections.toArray()).ifPresent(rect -> {
+                final Optional<Rect> faceRectMax = getFaceRectMax(faceDetections.toArray());
+                if (faceRectMax.isPresent()) {
+                    Rect rect = faceRectMax.get();
+                    if (needNearer(rect)) {
+                        continue;
+                    }
+                    if (needAway(rect)) {
+                        continue;
+                    }
                     direction.set(moveCenterFace(rect));
                     if (applicationConfig.isSavePicture()) {
                         Imgproc.rectangle(matrixGray, new Point(rect.x, rect.y),
@@ -107,7 +118,8 @@ public class RaspOpenCV implements Runnable {
                                 FONT_HERSHEY_PLAIN, 2, new Scalar(255, 255, 255));
                         Imgcodecs.imwrite(filename, matrixGray);
                     }
-                });
+                }
+                ;
                 //
                 if (applicationConfig.isSavePicture() && isFaceDetect && !CENTER.equalsIgnoreCase(direction.get())) {
                     final ByteArrayPictureCaptureHandler pictureCaptureHandler2 = new ByteArrayPictureCaptureHandler();
@@ -120,7 +132,9 @@ public class RaspOpenCV implements Runnable {
                     String filename2 = applicationConfig.getHome() + FACE_DETECTION_FILE_2;
                     Imgproc.cvtColor(matrix2, matrixGray2, Imgproc.COLOR_BGR2GRAY);
                     Imgcodecs.imwrite(filename2, matrixGray2);
-                    break;
+                    if (applicationConfig.isStopAfterSave()) {
+                        break;
+                    }
                 }
 
                 Thread.sleep(50);
@@ -133,6 +147,26 @@ public class RaspOpenCV implements Runnable {
         camera.close();
     }
 
+    private boolean needNearer(Rect rect) {
+      double area = (rect.area() / (W * H));
+      boolean nearer = area < applicationConfig.getNearerAreaPercent();
+      if (nearer) {
+          logger.info(String.format("move nearer " + area));
+          motor.forward(applicationConfig.getMoveDelay());
+      }
+      return nearer;
+    }
+
+    private boolean needAway(Rect rect) {
+        double area = (rect.area() / (W * H));
+        boolean away = area > applicationConfig.getAwayAreaPercent();
+        if (away) {
+            logger.info(String.format("move away " + area));
+            motor.backward(applicationConfig.getMoveDelay());
+        }
+        return away;
+    }
+
     private String moveCenterFace(Rect rect) {
         if (inCenter(rect)) {
             logger.info("IN CENTER");
@@ -142,10 +176,10 @@ public class RaspOpenCV implements Runnable {
         //
         String result = null;
         if (centerFaceX(rect) < centerFaceLeft(rect)) {
-            //turnRight(rect);
+            turnRight(rect);
             result = "Right";
         } else if (centerFaceX(rect) > centerFaceRight(rect)) {
-            //turnLeft(rect);
+            turnLeft(rect);
             result = "Left";
         }
         //
@@ -202,8 +236,8 @@ public class RaspOpenCV implements Runnable {
             x_servo_current -= servoStepX(rect);
             logger.info("LEFT");
         } else {
-            logger.info("LEFT-camera-limit, motor turn");
-            motor.left(2);
+            logger.info(String.format("LEFT-camera-limit %s, motor turn", x_servo_current));
+            motor.right(applicationConfig.getTurnDelay());
         }
         l2cBoard.setValue(X_SERVO_CAMERA, x_servo_current);
     }
@@ -213,8 +247,8 @@ public class RaspOpenCV implements Runnable {
             x_servo_current += servoStepX(rect);
             logger.info("RIGHT");
         } else {
-            logger.info("RIGHT-camera-limit, motor turn");
-            motor.right(2);
+            logger.info(String.format("RIGHT-camera-limit %s, motor turn", x_servo_current));
+            motor.left(applicationConfig.getTurnDelay());
         }
         l2cBoard.setValue(X_SERVO_CAMERA, x_servo_current);
     }
@@ -253,6 +287,16 @@ public class RaspOpenCV implements Runnable {
 
     private Optional<Rect> getFaceRectMax(Rect[] rects) {
         return Arrays.stream(rects).max(Comparator.comparing(Rect::area));
+    }
+
+    private void setLedDetect(boolean isDetect) {
+        if (isDetect) {
+            l2cBoard.setValue(LED_DETECT, 0.9f);
+            l2cBoard.setValue(LED_NO_DETECT, 0f);
+        } else {
+            l2cBoard.setValue(LED_DETECT, 0f);
+            l2cBoard.setValue(LED_NO_DETECT, 0.9f);
+        }
     }
 
 }

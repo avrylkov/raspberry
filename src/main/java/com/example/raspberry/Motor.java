@@ -24,14 +24,14 @@ public class Motor {
         if (motorLeft == null) {
             DigitalOutputDevice motorForwardControlPin = new DigitalOutputDevice(23, true, false);
             DigitalOutputDevice motorBackwardControlPin = new DigitalOutputDevice(24, true, false);
-            PwmOutputDevice motorPwmControl = new PwmOutputDevice(25, 50, 0.1f);
+            PwmOutputDevice motorPwmControl = new PwmOutputDevice(25, applicationConfig.getPwmFrequency(), 0.0f);
             motorLeft = new L298NMotor(motorForwardControlPin, motorBackwardControlPin, motorPwmControl);
         }
 
         if (motorRight == null) {
             DigitalOutputDevice motorForwardControlPin = new DigitalOutputDevice(5, true, false);
             DigitalOutputDevice motorBackwardControlPin = new DigitalOutputDevice(6, true, false);
-            PwmOutputDevice motorPwmControl = new PwmOutputDevice(17, 50, 0.1f);
+            PwmOutputDevice motorPwmControl = new PwmOutputDevice(17, applicationConfig.getPwmFrequency(), 0.0f);
             motorRight = new L298NMotor(motorForwardControlPin, motorBackwardControlPin, motorPwmControl);
         }
     }
@@ -44,6 +44,32 @@ public class Motor {
     public void forward(float speed) {
         Optional.ofNullable(motorLeft).ifPresent(m -> m.forward(speed));
         Optional.ofNullable(motorRight).ifPresent(m -> m.forward(speed));
+    }
+
+    public void forward(int delay) {
+        forward();
+        while (delay > 0) {
+            delay--;
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                logger.error("motor forward error", e);
+            }
+        }
+        stop();
+    }
+
+    public void backward(int delay) {
+        backward();
+        while (delay > 0) {
+            delay--;
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                logger.error("motor backward error", e);
+            }
+        }
+        stop();
     }
 
     public void backward() {
