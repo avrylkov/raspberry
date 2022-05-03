@@ -46,28 +46,20 @@ public class Motor {
         Optional.ofNullable(motorRight).ifPresent(m -> m.forward(speed));
     }
 
-    public void forward(int delay) {
+    public void forward(int delay) throws InterruptedException {
         forward();
         while (delay > 0) {
             delay--;
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                logger.error("motor forward error", e);
-            }
+            Thread.sleep(100);
         }
         stop();
     }
 
-    public void backward(int delay) {
+    public void backward(int delay) throws InterruptedException {
         backward();
         while (delay > 0) {
             delay--;
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                logger.error("motor backward error", e);
-            }
+            Thread.sleep(100);
         }
         stop();
     }
@@ -87,15 +79,11 @@ public class Motor {
         Optional.ofNullable(motorRight).ifPresent(m -> m.backward(applicationConfig.getMotorSpeed()));
     }
 
-    public void left(int delay) {
+    public void left(int delay) throws InterruptedException {
         left();
         while (delay > 0) {
             delay--;
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                logger.error("motor left error", e);
-            }
+            Thread.sleep(100);
         }
         stop();
     }
@@ -105,15 +93,11 @@ public class Motor {
         Optional.ofNullable(motorLeft).ifPresent(m -> m.backward(applicationConfig.getMotorSpeed()));
     }
 
-    public void right(int delay) {
+    public void right(int delay) throws InterruptedException {
         right();
         while (delay > 0) {
             delay--;
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                logger.error("motor left error", e);
-            }
+            Thread.sleep(100);
         }
         stop();
     }

@@ -80,18 +80,14 @@ public class RaspOpenCV implements Runnable {
         camera.open();
 
         while (true) {
-            final ByteArrayPictureCaptureHandler pictureCaptureHandler = new ByteArrayPictureCaptureHandler();
             try {
-                camera.takePicture(pictureCaptureHandler, applicationConfig.getPictureCaptureDelay());
-                final byte[] media = pictureCaptureHandler.result();
-                Mat matrix = Imgcodecs.imdecode(new MatOfByte(media), Imgcodecs.IMREAD_UNCHANGED);
-                Mat matrixGray = new Mat();
-                Imgproc.cvtColor(matrix, matrixGray, Imgproc.COLOR_BGR2GRAY);
-
+                Thread.sleep(50);
+                Mat matrixGray = takePicture();
+                //
                 MatOfRect faceDetections = new MatOfRect();
                 faceDetector.detectMultiScale(matrixGray, faceDetections, 1.3);
                 logger.info(String.format("detected %s faces", faceDetections.toArray().length));
-                AtomicReference<String> direction = new AtomicReference<>("");
+                String direction = "";
                 final boolean isFaceDetect = faceDetections.toArray().length > 0;
                 if (applicationConfig.isSavePictureNoDetect() && !isFaceDetect) {
                     String filename = applicationConfig.getHome() + FACE_NO_DETECTION_FILE;
@@ -108,46 +104,40 @@ public class RaspOpenCV implements Runnable {
                     if (needAway(rect)) {
                         continue;
                     }
-                    direction.set(moveCenterFace(rect));
+                    direction = moveCenterFace(rect);
                     if (applicationConfig.isSavePicture()) {
                         Imgproc.rectangle(matrixGray, new Point(rect.x, rect.y),
                                 new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(255, 255, 255));
                         // Save the visualized
                         String filename = applicationConfig.getHome() + FACE_DETECTION_FILE;
-                        Imgproc.putText(matrixGray, direction.get(), new Point(rect.x + 3, rect.y + 10),
+                        Imgproc.putText(matrixGray, direction, new Point(rect.x + 3, rect.y + 10),
                                 FONT_HERSHEY_PLAIN, 2, new Scalar(255, 255, 255));
                         Imgcodecs.imwrite(filename, matrixGray);
                     }
                 }
                 ;
                 //
-                if (applicationConfig.isSavePicture() && isFaceDetect && !CENTER.equalsIgnoreCase(direction.get())) {
-                    final ByteArrayPictureCaptureHandler pictureCaptureHandler2 = new ByteArrayPictureCaptureHandler();
-                    camera.takePicture(pictureCaptureHandler2, applicationConfig.getPictureCaptureDelay());
-                    final byte[] media2 = pictureCaptureHandler2.result();
-                    Mat matrix2 = Imgcodecs.imdecode(new MatOfByte(media2), Imgcodecs.IMREAD_UNCHANGED);
-                    Mat matrixGray2 = new Mat();
-
+                if (applicationConfig.isSavePicture() && isFaceDetect && !CENTER.equalsIgnoreCase(direction)) {
+                    Mat matrixGray2 = takePicture();
+                    //
                     logger.info(String.format("capture after centerFace"));
                     String filename2 = applicationConfig.getHome() + FACE_DETECTION_FILE_2;
-                    Imgproc.cvtColor(matrix2, matrixGray2, Imgproc.COLOR_BGR2GRAY);
                     Imgcodecs.imwrite(filename2, matrixGray2);
                     if (applicationConfig.isStopAfterSave()) {
                         break;
                     }
                 }
-
-                Thread.sleep(50);
             } catch (InterruptedException | CaptureFailedException e) {
                 logger.info(String.format("Face detections Interrupted %s", e.getMessage()));
                 break;
             }
         }
-        logger.info(String.format("close camera"));
+        logger.info(String.format("stop detect"));
         camera.close();
+        motor.stop();
     }
 
-    private boolean needNearer(Rect rect) {
+    private boolean needNearer(Rect rect) throws InterruptedException {
       double area = (rect.area() / (W * H));
       boolean nearer = area < applicationConfig.getNearerAreaPercent();
       if (nearer) {
@@ -157,7 +147,7 @@ public class RaspOpenCV implements Runnable {
       return nearer;
     }
 
-    private boolean needAway(Rect rect) {
+    private boolean needAway(Rect rect) throws InterruptedException {
         double area = (rect.area() / (W * H));
         boolean away = area > applicationConfig.getAwayAreaPercent();
         if (away) {
@@ -167,7 +157,7 @@ public class RaspOpenCV implements Runnable {
         return away;
     }
 
-    private String moveCenterFace(Rect rect) {
+    private String moveCenterFace(Rect rect) throws InterruptedException {
         if (inCenter(rect)) {
             logger.info("IN CENTER");
             return CENTER;
@@ -231,7 +221,7 @@ public class RaspOpenCV implements Runnable {
         return (centerFaceY >= (H_CENTER - rect.height / 2)) && (centerFaceY <= (H_CENTER + rect.height / 2));
     }
 
-    private void turnLeft(Rect rect) {
+    private void turnLeft(Rect rect) throws InterruptedException {
         if (x_servo_current >= X_SERVO_MIN) {
             x_servo_current -= servoStepX(rect);
             logger.info("LEFT");
@@ -242,7 +232,7 @@ public class RaspOpenCV implements Runnable {
         l2cBoard.setValue(X_SERVO_CAMERA, x_servo_current);
     }
 
-    private void turnRight(Rect rect) {
+    private void turnRight(Rect rect) throws InterruptedException {
         if (x_servo_current <= X_SERVO_MAX) {
             x_servo_current += servoStepX(rect);
             logger.info("RIGHT");
@@ -297,6 +287,16 @@ public class RaspOpenCV implements Runnable {
             l2cBoard.setValue(LED_DETECT, 0f);
             l2cBoard.setValue(LED_NO_DETECT, 0.9f);
         }
+    }
+
+    private Mat takePicture() throws CaptureFailedException {
+        final ByteArrayPictureCaptureHandler pictureCaptureHandler = new ByteArrayPictureCaptureHandler();
+        camera.takePicture(pictureCaptureHandler, applicationConfig.getPictureCaptureDelay());
+        final byte[] media = pictureCaptureHandler.result();
+        Mat matrix = Imgcodecs.imdecode(new MatOfByte(media), Imgcodecs.IMREAD_UNCHANGED);
+        Mat matrixGray = new Mat();
+        Imgproc.cvtColor(matrix, matrixGray, Imgproc.COLOR_BGR2GRAY);
+        return matrixGray;
     }
 
 }
