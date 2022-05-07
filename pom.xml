@@ -100,8 +100,14 @@
 		<dependency>
 			<groupId>org.openpnp</groupId>
 			<artifactId>opencv</artifactId>
-			<version>4.5.1-1</version>
+			<version>4.5.1-2</version>
 		</dependency>
+
+<!--		<dependency>-->
+<!--			<groupId>org.bytedeco</groupId>-->
+<!--			<artifactId>javacv-platform</artifactId>-->
+<!--			<version>1.5.7</version>-->
+<!--		</dependency>-->
 
 <!--		<dependency>-->
 <!--			<groupId>org.opencv.local</groupId>-->
