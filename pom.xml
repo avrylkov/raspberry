@@ -103,6 +103,29 @@
 			<version>4.5.1-2</version>
 		</dependency>
 
+		<dependency>
+			<groupId>org.nd4j</groupId>
+			<artifactId>nd4j-native-platform</artifactId>
+			<version>1.0.0-M1</version>
+<!--			<version>0.9.1</version>-->
+		</dependency>
+		<dependency>
+			<groupId>org.nd4j</groupId>
+			<artifactId>nd4j-api</artifactId>
+<!--			<version>1.0.0-M1</version>-->
+			<version>1.0.0-M1</version>
+		</dependency>
+		<dependency>
+			<groupId>org.deeplearning4j</groupId>
+			<artifactId>deeplearning4j-core</artifactId>
+			<version>1.0.0-M1</version>
+		</dependency>
+		<dependency>
+			<groupId>org.deeplearning4j</groupId>
+			<artifactId>deeplearning4j-zoo</artifactId>
+			<version>1.0.0-M1</version>
+		</dependency>
+
 <!--		<dependency>-->
 <!--			<groupId>org.bytedeco</groupId>-->
 <!--			<artifactId>javacv-platform</artifactId>-->
@@ -146,10 +169,10 @@
 <!--				</configuration>-->
 			</plugin>
 
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-jar-plugin</artifactId>
-			</plugin>
+<!--			<plugin>-->
+<!--				<groupId>org.apache.maven.plugins</groupId>-->
+<!--				<artifactId>maven-jar-plugin</artifactId>-->
+<!--			</plugin>-->
 
 			<!--
 			https://maven.apache.org/plugins/maven-compiler-plugin/

@@ -1,6 +1,5 @@
 package com.example.raspberry;
 
-import static com.example.raspberry.RaspOpenCV.FACE_DETECTION_FILE;
 import static uk.co.caprica.picam.CameraConfiguration.cameraConfiguration;
 
 import com.diozero.api.DigitalInputDevice;
@@ -8,6 +7,8 @@ import com.diozero.api.DigitalOutputDevice;
 import com.diozero.api.GpioPullUpDown;
 import com.diozero.devices.LED;
 import com.diozero.devices.PCA9685;
+import org.bytedeco.javacpp.Loader;
+import org.bytedeco.opencv.opencv_java;
 import org.opencv.core.Core;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +49,7 @@ public class RaspController {
 
     private boolean isInitOpenCV = false;
     private Thread openCVTread = null;
+    private Thread recognizeTread = null;
 
     @GetMapping("/led/{id}")
     public String led(@PathVariable int id) {
@@ -68,7 +70,7 @@ public class RaspController {
             default:
                 break;
         }
-        return "led: " + id;
+        return "led : " + id;
     }
 
     @RequestMapping(value = "/cam/{axis}/{angle}", method = RequestMethod.GET)
@@ -82,9 +84,9 @@ public class RaspController {
 
         interruptBlink();
         if ("x".equalsIgnoreCase(axis)) {
-            initL2C().setValue(RaspOpenCV.X_SERVO_CAMERA, (float) angle / 1000.0f);
+            initL2C().setValue(RaspConstant.X_SERVO_CAMERA, (float) angle / 1000.0f);
         } else if ("y".equalsIgnoreCase(axis)) {
-            initL2C().setValue(RaspOpenCV.Y_SERVO_CAMERA, (float) angle / 1000.0f);
+            initL2C().setValue(RaspConstant.Y_SERVO_CAMERA, (float) angle / 1000.0f);
         }
 
         getLed().on();
@@ -189,7 +191,42 @@ public class RaspController {
             openCVTread.interrupt();
             openCVTread = null;
         }
-        return "OpenCV : " + on;
+        return "OpenCV: " + on;
+    }
+
+    @RequestMapping(value = "/train/{on}", method = RequestMethod.GET)
+    public String trainControl(@PathVariable int on) {
+        if (!isInitOpenCV) {
+            //OpenCV.loadShared();
+            Loader.load(opencv_java.class);
+//            WorkspaceConfiguration mmap = WorkspaceConfiguration.builder()
+//                    .tempFilePath(applicationConfig.getHome() + "tempFile")
+//                    .initialSize(2_000_000_000)
+//                    .policyLocation(LocationPolicy.MMAP)
+//                    .policyLearning(LearningPolicy.NONE)
+//                    .build();
+//            Nd4j.getWorkspaceManager().createNewWorkspace(mmap);
+
+            //System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+            isInitOpenCV = true;
+        }
+        try {
+            initPiCamera();
+        } catch (Exception e) {
+            logger.error(e.getMessage());
+            return e.getMessage();
+        }
+        initMotor();
+        //
+        if (on == 1) {
+            RaspRecognize raspRecognize = new RaspRecognize(applicationConfig, initL2C(), camera, motor);
+            recognizeTread = new Thread(raspRecognize);
+            recognizeTread.start();
+        } else if (recognizeTread != null){
+            recognizeTread.interrupt();
+            recognizeTread = null;
+        }
+        return "recognize : " + on;
     }
 
     @GetMapping("/info")

@@ -28,6 +28,14 @@ public class ApplicationConfig {
     private int turnDelay;
     @Value("${pwm.frequency}")
     private int pwmFrequency;
+    @Value("${motor.turn}")
+    private boolean motorTurn;
+    @Value("${train.image.path}")
+    private String trainImagePath;
+    @Value("${train.voice.path}")
+    private String trainVoicePath;
+    @Value("${threshold.distance}")
+    private double thresholdDistance;
 
     public float getMotorSpeed() {
         return motorSpeed;
@@ -71,5 +79,21 @@ public class ApplicationConfig {
 
     public int getPwmFrequency() {
         return pwmFrequency;
+    }
+
+    public boolean isMotorTurn() {
+        return motorTurn;
+    }
+
+    public String getTrainImagePath() {
+        return trainImagePath;
+    }
+
+    public String getTrainVoicePath() {
+        return trainVoicePath;
+    }
+
+    public double getThresholdDistance() {
+        return thresholdDistance;
     }
 }
