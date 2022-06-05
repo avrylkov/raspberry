@@ -43,35 +43,17 @@ public class RaspController {
     private BlinkSlowlyRun blinkSlowlyRun = null;
     private Thread blinkSlowlyRunThread = null;
 
-    private DigitalOutputDevice trig = null;
-    private DigitalInputDevice echo = null;
+    private DigitalOutputDevice ultrasonicTrigger = null;
+    private DigitalInputDevice ultrasonicEcho = null;
     private Thread ultrasonicRunThread = null;
+
+    private DigitalInputDevice infraredInputRight = null;
+    private DigitalInputDevice infraredInputLeft = null;
+    private Thread infraredRunThread = null;
 
     private boolean isInitOpenCV = false;
     private Thread openCVTread = null;
     private Thread recognizeTread = null;
-
-    @GetMapping("/led/{id}")
-    public String led(@PathVariable int id) {
-        interruptBlink();
-        switch (id) {
-            case 0:
-                getLed().off();
-                break;
-            case 1:
-                getLed().on();
-                break;
-            case 2:
-                blink();
-                break;
-            case 3:
-                servo();
-                break;
-            default:
-                break;
-        }
-        return "led : " + id;
-    }
 
     @RequestMapping(value = "/cam/{axis}/{angle}", method = RequestMethod.GET)
     public ResponseEntity<byte[]> getImageAsResponseEntity(@PathVariable String axis, @PathVariable int angle) {
@@ -89,7 +71,6 @@ public class RaspController {
             initL2C().setValue(RaspConstant.Y_SERVO_CAMERA, (float) angle / 1000.0f);
         }
 
-        getLed().on();
         camera.open();
         try {
             final ByteArrayPictureCaptureHandler pictureCaptureHandler = new ByteArrayPictureCaptureHandler();
@@ -101,7 +82,6 @@ public class RaspController {
             headers.setContentType(MediaType.IMAGE_JPEG);
             headers.setContentLength(media.length);
             ResponseEntity<byte[]> responseEntity = new ResponseEntity<>(media, headers, HttpStatus.OK);
-            getLed().off();
             return responseEntity;
         } catch (CaptureFailedException e) {
             logger.error("Error takePicture ", e);
@@ -154,18 +134,36 @@ public class RaspController {
 
     @RequestMapping(value = "/ultra/{on}", method = RequestMethod.GET)
     public String ultrasonicControl(@PathVariable int on) {
-        initUltra();
+        initUltrasonic();
         initMotor();
         if (on == 1) {
             blinkSlowlyRun();
-            UltrasonicRun ultrasonic = new UltrasonicRun(trig, echo, motor);
+            UltrasonicRun ultrasonic = new UltrasonicRun(new Ultrasonic(ultrasonicTrigger, ultrasonicEcho), motor);
             ultrasonicRunThread = new Thread(ultrasonic);
             ultrasonicRunThread.start();
         } else {
             blinkSlowlyStop();
-            stopUltra();
+            stopUltrasonic();
+            stopMotor();
         }
         return "ultrasonic: " + on;
+    }
+
+    @RequestMapping(value = "/infra/{on}", method = RequestMethod.GET)
+    public String infraredControl(@PathVariable int on) {
+        initInfraredInput();
+        initUltrasonic();
+        initMotor();
+        if (on == 1) {
+            InfraredRun infraredRun = new InfraredRun(infraredInputRight, infraredInputLeft,
+                    new Ultrasonic(ultrasonicTrigger, ultrasonicEcho), motor);
+            infraredRunThread  = new Thread(infraredRun);
+            infraredRunThread.start();
+        } else {
+            stopInfrared();
+            stopMotor();
+        }
+        return "infrared: " + on;
     }
 
     @RequestMapping(value = "/cv/{on}", method = RequestMethod.GET)
@@ -257,20 +255,38 @@ public class RaspController {
         }
     }
 
-    private void stopUltra() {
+    private void stopUltrasonic() {
         if (ultrasonicRunThread != null ) {
             ultrasonicRunThread.interrupt();
             ultrasonicRunThread = null;
         }
     }
 
-    private void initUltra() {
-        if (trig == null || echo == null) {
-            trig = new DigitalOutputDevice(16);
-            echo = DigitalInputDevice.Builder.builder(26)
-                    .setActiveHigh(true)
+    private void initUltrasonic() {
+        if (ultrasonicTrigger == null || ultrasonicEcho == null) {
+            ultrasonicTrigger = new DigitalOutputDevice(16);
+            ultrasonicEcho = DigitalInputDevice.Builder.builder(26)
+                    //.setActiveHigh(true)
                     .setPullUpDown(GpioPullUpDown.PULL_DOWN)
                     .build();
+        }
+    }
+
+    private void initInfraredInput() {
+        if (infraredInputRight == null || infraredInputLeft == null) {
+            infraredInputRight = DigitalInputDevice.Builder.builder(27)
+                    .setActiveHigh(true)
+                    .build();
+            infraredInputLeft = DigitalInputDevice.Builder.builder(22)
+                    .setActiveHigh(true)
+                    .build();
+        }
+    }
+
+    private void stopInfrared() {
+        if (infraredRunThread != null) {
+            infraredRunThread.interrupt();
+            infraredRunThread = null;
         }
     }
 
@@ -281,18 +297,18 @@ public class RaspController {
         }
     }
 
+    private void stopMotor() {
+        if (motor != null) {
+            motor.stop();
+        }
+    }
+
     private ResponseEntity<byte[]> getResponseException(String message) {
         HttpHeaders headers = new HttpHeaders();
         headers.setCacheControl(CacheControl.noCache().getHeaderValue());
         headers.setContentType(MediaType.TEXT_PLAIN);
         headers.setContentLength(message.getBytes().length);
         return new ResponseEntity<>(message.getBytes(), headers, HttpStatus.OK);
-    }
-
-    private void blink() {
-        BlinkRun blinkRun = new BlinkRun(getLed());
-        blinkThread = new Thread(blinkRun);
-        blinkThread.start();
     }
 
     private PCA9685 initL2C() {
@@ -325,13 +341,6 @@ public class RaspController {
             blinkSlowlyRunThread.interrupt();
             blinkSlowlyRunThread = null;
         }
-    }
-
-    private LED getLed() {
-        if (led == null) {
-            led = new LED(22);
-        }
-        return led;
     }
 
     private void interruptBlink() {

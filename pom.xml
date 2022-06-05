@@ -97,11 +97,11 @@
 		</dependency>
 
 		<!-- https://mvnrepository.com/artifact/org.openpnp/opencv -->
-		<dependency>
+		<!--dependency>
 			<groupId>org.openpnp</groupId>
 			<artifactId>opencv</artifactId>
 			<version>4.5.1-2</version>
-		</dependency>
+		</dependency-->
 
 		<dependency>
 			<groupId>org.nd4j</groupId>
