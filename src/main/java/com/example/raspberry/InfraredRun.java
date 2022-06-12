@@ -1,6 +1,5 @@
 package com.example.raspberry;
 
-import com.diozero.api.DigitalInputDevice;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -8,15 +7,12 @@ public class InfraredRun implements Runnable {
 
     private final Logger logger = LoggerFactory.getLogger(InfraredRun.class);
 
-    private final DigitalInputDevice infraredInputRight;
-    private final DigitalInputDevice infraredInputLeft;
+    private final Infrared infrared;
     private final Ultrasonic ultrasonic;
     private final Motor motor;
 
-    public InfraredRun(DigitalInputDevice infraredInputRight,
-                       DigitalInputDevice infraredInputLeft, Ultrasonic ultrasonic, Motor motor) {
-        this.infraredInputRight = infraredInputRight;
-        this.infraredInputLeft = infraredInputLeft;
+    public InfraredRun(Infrared infrared, Ultrasonic ultrasonic, Motor motor) {
+        this.infrared = infrared;
         this.ultrasonic = ultrasonic;
         this.motor = motor;
     }
@@ -27,16 +23,21 @@ public class InfraredRun implements Runnable {
         logger.info("infraredInput start");
         ultrasonic.trigger(false);
         try {
-            Thread.sleep(200);
+            //Thread.sleep(200);
             while (true) {
-                if (obstacleInFront()) {
+                final double inFront = obstacleInFront();
+                if (inFront < 0) {
+                    motor.stop();
+                    Thread.sleep(500);
+                    continue;
+                } else if(inFront < 40) {
                     motor.stop();
                     if (!obstacleInRight()) {
                         logger.info("Right");
-                        motor.right();
+                        motor.left();
                     } else if (!obstacleInLeft()) {
                         logger.info("Left");
-                        motor.left();
+                        motor.right();
                     }
                 } else {
                     logger.info("forward");
@@ -45,23 +46,25 @@ public class InfraredRun implements Runnable {
                 Thread.sleep(500);
             }
         } catch (InterruptedException e) {
-            logger.error("infraredInput stop", e);
+            logger.error("InfraredInput, Ultrasonic stop", e);
+            ultrasonic.close();
+            infrared.close();
             motor.stop();
         }
     }
 
-    private boolean obstacleInFront() throws InterruptedException {
+    private double obstacleInFront() throws InterruptedException {
         double d = ultrasonic.getDistance2();
         logger.info("Distance " + d);
-        return d < 45.0;
+        return d;
     }
 
     private boolean obstacleInRight() {
-        return !infraredInputRight.getValue();
+        return !infrared.getInputRight();
     }
 
     private boolean obstacleInLeft() {
-        return !infraredInputLeft.getValue();
+        return !infrared.getInputLeft();
     }
 
 }

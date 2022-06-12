@@ -2,17 +2,26 @@ package com.example.raspberry;
 
 import com.diozero.api.DigitalInputDevice;
 import com.diozero.api.DigitalOutputDevice;
+import com.diozero.api.GpioPullUpDown;
 
 public class Ultrasonic {
 
     private long REJECTION_START = 1000, REJECTION_TIME = 1000; //ns;
 
-    private final DigitalOutputDevice trigger;
-    private final DigitalInputDevice echo;
+    private DigitalOutputDevice trigger;
+    private DigitalInputDevice echo;
 
-    public Ultrasonic(DigitalOutputDevice trigger, DigitalInputDevice echo) {
-        this.trigger = trigger;
-        this.echo = echo;
+    public Ultrasonic() {
+        super();
+        initUltrasonic();
+    }
+
+    private void initUltrasonic() {
+        trigger = new DigitalOutputDevice(16);
+        echo = DigitalInputDevice.Builder.builder(26)
+                //.setActiveHigh(true)
+                .setPullUpDown(GpioPullUpDown.PULL_DOWN)
+                .build();
     }
 
     public void trigger(boolean value) {
@@ -42,7 +51,7 @@ public class Ultrasonic {
         return (((end - start) / 1e3) / 2) / 29.1;
     }
 
-    public double getDistance2() throws InterruptedException { //in milimeters
+    public double getDistance2() throws InterruptedException {
         double distance = 0;
         long start_time = 0, end_time = 0, rejection_start = 0, rejection_time = 0;
         //Start ranging- trig should be in high state for 10us to generate ultrasonic signal
@@ -68,10 +77,15 @@ public class Ultrasonic {
             if (rejection_time == REJECTION_TIME) return -2; //infinity
         }
 
-        distance = ((end_time - start_time) / 5882.35294118); //distance in mm
-        //distance = (((end_time - start_time) / 1e3) / 2) / 29.1;
+        //distance = ((end_time - start_time) / 5882.35294118); //distance in mm
+        distance = (((end_time - start_time) / 1e3) / 2) / 29.1; // cm
         //distance=(end_time-start_time)/(200*29.1); //distance in mm
-        return distance / 10.0;
+        return distance;
+    }
+
+    public void close() {
+        trigger.close();
+        echo.close();
     }
 
 }

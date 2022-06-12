@@ -37,6 +37,7 @@ public class UltrasonicRun implements Runnable {
             }
         } catch (Exception e) {
             logger.info("Ultrasonic Interrupted");
+            ultrasonic.close();
             motor.stop();
             return;
         }

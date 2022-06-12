@@ -2,9 +2,6 @@ package com.example.raspberry;
 
 import static uk.co.caprica.picam.CameraConfiguration.cameraConfiguration;
 
-import com.diozero.api.DigitalInputDevice;
-import com.diozero.api.DigitalOutputDevice;
-import com.diozero.api.GpioPullUpDown;
 import com.diozero.devices.LED;
 import com.diozero.devices.PCA9685;
 import org.bytedeco.javacpp.Loader;
@@ -43,17 +40,14 @@ public class RaspController {
     private BlinkSlowlyRun blinkSlowlyRun = null;
     private Thread blinkSlowlyRunThread = null;
 
-    private DigitalOutputDevice ultrasonicTrigger = null;
-    private DigitalInputDevice ultrasonicEcho = null;
     private Thread ultrasonicRunThread = null;
 
-    private DigitalInputDevice infraredInputRight = null;
-    private DigitalInputDevice infraredInputLeft = null;
     private Thread infraredRunThread = null;
 
     private boolean isInitOpenCV = false;
     private Thread openCVTread = null;
     private Thread recognizeTread = null;
+    private Thread infraredTestRunThread = null;
 
     @RequestMapping(value = "/cam/{axis}/{angle}", method = RequestMethod.GET)
     public ResponseEntity<byte[]> getImageAsResponseEntity(@PathVariable String axis, @PathVariable int angle) {
@@ -134,16 +128,15 @@ public class RaspController {
 
     @RequestMapping(value = "/ultra/{on}", method = RequestMethod.GET)
     public String ultrasonicControl(@PathVariable int on) {
-        initUltrasonic();
         initMotor();
         if (on == 1) {
             blinkSlowlyRun();
-            UltrasonicRun ultrasonic = new UltrasonicRun(new Ultrasonic(ultrasonicTrigger, ultrasonicEcho), motor);
+            UltrasonicRun ultrasonic = new UltrasonicRun(new Ultrasonic(), motor);
             ultrasonicRunThread = new Thread(ultrasonic);
             ultrasonicRunThread.start();
         } else {
             blinkSlowlyStop();
-            stopUltrasonic();
+            stopUltrasonicThread();
             stopMotor();
         }
         return "ultrasonic: " + on;
@@ -151,19 +144,36 @@ public class RaspController {
 
     @RequestMapping(value = "/infra/{on}", method = RequestMethod.GET)
     public String infraredControl(@PathVariable int on) {
-        initInfraredInput();
-        initUltrasonic();
         initMotor();
         if (on == 1) {
-            InfraredRun infraredRun = new InfraredRun(infraredInputRight, infraredInputLeft,
-                    new Ultrasonic(ultrasonicTrigger, ultrasonicEcho), motor);
+            InfraredRun infraredRun = new InfraredRun(new Infrared(),
+                    new Ultrasonic(), motor);
             infraredRunThread  = new Thread(infraredRun);
             infraredRunThread.start();
         } else {
-            stopInfrared();
+            stopInfraredTread();
             stopMotor();
         }
         return "infrared: " + on;
+    }
+
+    @RequestMapping(value = "/infra-test/{on}", method = RequestMethod.GET)
+    public String infraredTestControl(@PathVariable int on) {
+        if (on == 1) {
+            InfraredTestRun infraredRun = new InfraredTestRun(new Infrared());
+            infraredTestRunThread  = new Thread(infraredRun);
+            infraredTestRunThread.start();
+        } else {
+            stopInfraredTestRunThread();
+        }
+        return "infrared: " + on;
+    }
+
+    private void stopInfraredTestRunThread() {
+        if (infraredTestRunThread != null) {
+            infraredTestRunThread.interrupt();
+            infraredTestRunThread = null;
+        }
     }
 
     @RequestMapping(value = "/cv/{on}", method = RequestMethod.GET)
@@ -255,35 +265,15 @@ public class RaspController {
         }
     }
 
-    private void stopUltrasonic() {
+    private void stopUltrasonicThread() {
         if (ultrasonicRunThread != null ) {
+            logger.info("Close Ultrasonic");
             ultrasonicRunThread.interrupt();
             ultrasonicRunThread = null;
         }
     }
 
-    private void initUltrasonic() {
-        if (ultrasonicTrigger == null || ultrasonicEcho == null) {
-            ultrasonicTrigger = new DigitalOutputDevice(16);
-            ultrasonicEcho = DigitalInputDevice.Builder.builder(26)
-                    //.setActiveHigh(true)
-                    .setPullUpDown(GpioPullUpDown.PULL_DOWN)
-                    .build();
-        }
-    }
-
-    private void initInfraredInput() {
-        if (infraredInputRight == null || infraredInputLeft == null) {
-            infraredInputRight = DigitalInputDevice.Builder.builder(27)
-                    .setActiveHigh(true)
-                    .build();
-            infraredInputLeft = DigitalInputDevice.Builder.builder(22)
-                    .setActiveHigh(true)
-                    .build();
-        }
-    }
-
-    private void stopInfrared() {
+    private void stopInfraredTread() {
         if (infraredRunThread != null) {
             infraredRunThread.interrupt();
             infraredRunThread = null;
