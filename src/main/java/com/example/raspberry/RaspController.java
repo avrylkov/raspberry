@@ -202,6 +202,24 @@ public class RaspController {
         return "OpenCV: " + on;
     }
 
+
+    private RaspRecognize2 imageRecognize2;
+
+    @RequestMapping(value = "/train2/{name}", method = RequestMethod.GET)
+    public String train2Control(@PathVariable String name) {
+        if ("1".equals(name)) {
+            imageRecognize2 = new RaspRecognize2(applicationConfig);
+            recognizeTread = new Thread(imageRecognize2);
+            recognizeTread.start();
+        } else if ("0".equals(name)) {
+            recognizeTread.interrupt();
+            imageRecognize2 = null;
+        } else {
+            imageRecognize2.setFace(name);
+        }
+        return "train2Control " + name;
+    }
+
     @RequestMapping(value = "/train/{on}", method = RequestMethod.GET)
     public String trainControl(@PathVariable int on) {
         if (!isInitOpenCV) {
