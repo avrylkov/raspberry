@@ -1,5 +1,8 @@
 package com.example.raspberry;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.datavec.image.loader.NativeImageLoader;
 import org.deeplearning4j.nn.conf.WorkspaceMode;
@@ -12,26 +15,40 @@ import org.deeplearning4j.zoo.ZooModel;
 import org.deeplearning4j.zoo.model.TinyYOLO;
 import org.deeplearning4j.zoo.model.VGG16;
 import org.deeplearning4j.zoo.util.imagenet.ImageNetLabels;
+import org.nd4j.common.base.Preconditions;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.preprocessor.DataNormalization;
 import org.nd4j.linalg.dataset.api.preprocessor.ImagePreProcessingScaler;
 import org.nd4j.linalg.dataset.api.preprocessor.VGG16ImagePreProcessor;
 import org.nd4j.linalg.factory.Nd4j;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfRect;
+import org.opencv.core.Rect;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.objdetect.CascadeClassifier;
+import org.opencv.videoio.VideoCapture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static com.example.raspberry.RaspConstant.HAAR_CASCADE_XML;
 
 public class RaspRecognize2 implements Runnable {
 
     private final Logger logger = LoggerFactory.getLogger(RaspRecognize.class);
 
+    private DateTimeFormatter face_formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HHmmss.SSS");
     private NativeImageLoader _nativeImageLoader;
     private TransferLearningHelper _transferLearningHelper;
     //private DataNormalization vggImagePreProcessor;
@@ -39,6 +56,8 @@ public class RaspRecognize2 implements Runnable {
     private ComputationGraph computationGraph;
     private List<VectorModel2> memberModels = new ArrayList<>();
     private AtomicReference<String> compareFace = new AtomicReference<>("");
+    private VideoCapture videoCapture;
+    private CascadeClassifier faceDetector;
     private static String[] labels = {"aeroplane","bicycle","bird","boat","bottle","bus","car","cat","chair","cow",
             "diningtable","dog","horse","motorbike","person","pottedplant","sheep","sofa","train","tvmonitor"};
 
@@ -57,7 +76,76 @@ public class RaspRecognize2 implements Runnable {
 
     @Override
     public void run() {
-        logger.info("Running Recognize, Loading DL4J.");
+        try {
+            if (!init()) {
+                return;
+            }
+            while (true) {
+                Thread.sleep(100);
+                double[] featuresCompareImage = new double[0];
+                List<Mat> matList = null;
+                if (isCompareFileFace()) {
+                    featuresCompareImage = compareFileFace();
+                    compareFace.set("");
+                } else if (isCompareCameraFace()) {
+                    matList = compareCameraFace();
+                    compareFace.set("");
+                } else if (isCompareAutoCameraFace()) {
+                    matList = compareCameraFace();
+                }
+                //
+                if (CollectionUtils.isNotEmpty(matList)) {
+                    for (Mat mat : matList) {
+                        featuresCompareImage = getFeaturesImage(mat);
+                        if (featuresCompareImage.length == 0) {
+                            continue;
+                        }
+                        compareFace(featuresCompareImage, mat);
+                    }
+                } else {
+                    if (featuresCompareImage.length == 0) {
+                        continue;
+                    }
+                    compareFace(featuresCompareImage, null);
+                }
+            }
+        } catch (InterruptedException | IOException e) {
+            videoCapture.release();
+            logger.error("error", e);
+            return;
+        }
+    }
+
+    private void compareFace(double[] featuresCompareImage, Mat mat) {
+        INDArray array1 = Nd4j.create(featuresCompareImage);
+        double minimalDistance = Double.MAX_VALUE;
+        VectorModel2 vectorModelResult = null;
+        for (VectorModel2 personModel : memberModels) {
+            INDArray array2 = Nd4j.create(personModel.getVector());
+            double distance = euclideanDistance(array1, array2);
+            if (distance < minimalDistance) {
+                minimalDistance = distance;
+                vectorModelResult = personModel;
+            }
+        }
+        if (vectorModelResult != null) {
+            logger.info(String.format("recognize face, minimalDistance=%s, name=%s", minimalDistance, vectorModelResult.getName()));
+        }
+        if (vectorModelResult != null && minimalDistance <= applicationConfig.getThresholdDistance()) {
+            sayHello(applicationConfig.getTrainImagePath() + vectorModelResult.getName() + "/" + vectorModelResult.getName() + ".wav");
+        }
+        if (mat != null && vectorModelResult != null && minimalDistance > applicationConfig.getThresholdDistance()) {
+            final String path = applicationConfig.getTrainImagePath() + "other/";
+            final String name = face_formatter.format(LocalDateTime.now()) + ".jpg";
+            Imgcodecs.imwrite(path + name, mat);
+            VectorModel2 vectorModel = new VectorModel2(featuresCompareImage, path, name);
+            memberModels.add(vectorModel);
+            logger.info("Save face=" + name);
+        }
+    }
+
+    private boolean init() throws IOException {
+        logger.info("Running Recognize, Loading DL4J.  ");
         ZooModel objZooModel = TinyYOLO.builder().build();
         //ZooModel objZooModel = VGG16.builder().build();
         try {
@@ -65,92 +153,120 @@ public class RaspRecognize2 implements Runnable {
             //computationGraph = (ComputationGraph) objZooModel.initPretrained(PretrainedType.VGGFACE);
         } catch (IOException e) {
             logger.error("error objZooModel", e);
-            return;
+            return false;
         }
         System.out.println("Loaded DL4J");
+        videoCapture = new VideoCapture(0);
         logger.info(computationGraph.summary());
-        _transferLearningHelper = new TransferLearningHelper(computationGraph, "conv2d_9"); // max_pooling2d_6 conv2d_9 // TinyYOLO
+        //_transferLearningHelper = new TransferLearningHelper(computationGraph, "conv2d_9"); // max_pooling2d_6 conv2d_9 // TinyYOLO
         //_transferLearningHelper = new TransferLearningHelper(computationGraph, "pool4"); //pool4  fc2 vgg
         _nativeImageLoader = new NativeImageLoader(224, 224, 3); // NativeImageLoader(224, 224, 3);
         //imagePreProcessor = new VGG16ImagePreProcessor();
-       //imagePreProcessor = new ImagePreProcessingScaler(0, 1);
-        imagePreProcessor = new ImagePreProcessingScaler();
-
-        try {
-            if (imageNetLabels == null) {
-                imageNetLabels = new ImageNetLabels();
-            }
-            loadTrainVectorsModel();
-            while (true) {
-                Thread.sleep(100);
-                if (StringUtils.isNotEmpty(compareFace.get())) {
-                    final File compareFaceImage = new File(applicationConfig.getTrainImagePath() + compareFace.get());
-                    final double[] featuresCompareImage = getFeaturesImage(compareFaceImage);
-                    INDArray array1 = Nd4j.create(featuresCompareImage);
-                    //INDArray array1 = getFeaturesImage2(compareFaceImage);
-                    double minimalDistance = Double.MAX_VALUE;
-                    String resultName = "";
-                    for(VectorModel2 personModel : memberModels) {
-                        INDArray array2 = Nd4j.create(personModel.getVector());
-                        double distance = euclideanDistance(array1, array2);
-                        //double distance = euclideanDistance(array1, personModel.getIndArray());
-                        if (distance < minimalDistance){
-                            minimalDistance = distance;
-                            resultName = personModel.getName();
-                        }
-                    }
-                    System.out.println(String.format("minimalDistance=%s, name=%s", minimalDistance, resultName));
-                    compareFace.set("");
-                }
-            }
-        } catch (InterruptedException | IOException e) {
-            logger.error("error", e);
-            return;
+        imagePreProcessor = new ImagePreProcessingScaler(0, 1);
+        if (imageNetLabels == null) {
+            imageNetLabels = new ImageNetLabels();
         }
+        faceDetector = new CascadeClassifier();
+        if (!faceDetector.load(applicationConfig.getHome() + HAAR_CASCADE_XML)) {
+            logger.error("Не удалось загрузить cascade frontal face xml");
+            return false;
+        }
+        loadTrainVectorsModel();
+        return true;
     }
 
-/*
-    private INDArray forwardPass(INDArray indArray) {
-        Map<String, INDArray> output = computationGraph.feedForward(indArray, false);
-        GraphVertex embeddings = computationGraph.getVertex("outputs");
-        INDArray dense = output.get("conv2d_9");
-        embeddings.setInput(0, indArray, LayerWorkspaceMgr.builder().defaultNoWorkspace().build()); //setInputs(dense);
-        INDArray embeddingValues = embeddings.doForward(false, LayerWorkspaceMgr.builder().defaultNoWorkspace().build());
-        logger.info("dense =                 " + dense);
-        logger.info("encodingsValues =                 " + embeddingValues);
-        return embeddingValues;
+    private void sayHello(String filePath) {
+        RaspUtils.playShell(filePath);
     }
-*/
 
+    private boolean isCompareAutoCameraFace() {
+        return "auto".equals(compareFace.get());
+    }
+
+    private boolean isCompareFileFace() {
+        return StringUtils.isNotEmpty(compareFace.get())
+                && FilenameUtils.getExtension(compareFace.get()).equalsIgnoreCase("jpg");
+    }
+
+    private boolean isCompareCameraFace() {
+        return "camera".equals(compareFace.get());
+    }
+
+    private double[] compareFileFace() throws IOException {
+        final File compareFaceImage = new File(applicationConfig.getTrainImagePath() + compareFace.get());
+        return getFeaturesImage(compareFaceImage);
+    }
+
+    private List<Mat> compareCameraFace() throws IOException {
+        List<Mat> matList = new ArrayList<>();
+        if (videoCapture.isOpened()) {
+            Mat matrix = new Mat();
+            videoCapture.read(matrix);
+            MatOfRect faceDetections = new MatOfRect();
+            faceDetector.detectMultiScale(matrix, faceDetections, 1.3);
+            if (faceDetections.toArray().length > 0) {
+                logger.info(String.format("detected %s faces", faceDetections.toArray().length));
+                for (Rect rect : faceDetections.toArray()) {
+                    //final Optional<Rect> faceRectMax = RaspUtils.getFaceRectMax(faceDetections.toArray());
+                    //if (faceRectMax.isPresent()) {
+                    //    final Rect rect = faceRectMax.get();
+                    matList.add(matrix.submat(rect));
+                }
+            } else {
+                Imgcodecs.imwrite(applicationConfig.getHome() + "camera.jpg", matrix);
+            }
+        } else {
+            logger.warn("camera !isOpened");
+        }
+        return matList;
+    }
 
     private double euclideanDistance(INDArray array1, INDArray array2) {
         return array1.distance2(array2);
     }
 
     private void loadTrainVectorsModel() throws IOException {
-        final File folder = new File(applicationConfig.getTrainImagePath());
-        final File[] folders = folder.listFiles();
+        final ObjectMapper objectMapper = new ObjectMapper();
+        final File rootFolder = new File(applicationConfig.getTrainImagePath());
+        final File[] folders = rootFolder.listFiles();
         for (final File folderEntry : folders) {
             if (folderEntry.isDirectory()) {
-                final String[] split = folderEntry.getPath().split("\\\\");
-                String name = split[split.length - 1];
-                final File[] files = folderEntry.listFiles();
+                String name = folderEntry.getName();
+                final File[] allFiles = folderEntry.listFiles();
+                final List<File> filesJpg = RaspUtils.getFilesByType(allFiles, "jpg");
                 logger.info("--------- add name=" + name);
-                for (File file : files) {
-                    final double[] featuresImage = getFeaturesImage(file);
-                    memberModels.add(new VectorModel2(featuresImage, folderEntry.getPath(), name));
-//                    INDArray indArray = getFeaturesImage2(file);
-//                    memberModels.add(new VectorModel2(indArray, folderEntry.getPath(), name));
-                    logger.info("add name=" + file.getName());
+                for (File jpgFile : filesJpg) {
+                    final VectorModel2 vectorModel;
+                    File fileJson = new File(jpgFile.getParent() + "/" + FilenameUtils.removeExtension(jpgFile.getName()) + ".json");
+                    if (fileJson.exists()) {
+                        vectorModel = objectMapper.readValue(fileJson, VectorModel2.class);
+                    } else {
+                        final double[] featuresImage = getFeaturesImage(jpgFile);
+                        vectorModel = new VectorModel2(featuresImage, folderEntry.getPath(), name);
+                        File jsonFile = new File(jpgFile.getParent() + "/" + FilenameUtils.removeExtension(jpgFile.getName()) + ".json");
+                        objectMapper.writeValue(jsonFile, vectorModel);
+                    }
+                    memberModels.add(vectorModel);
+                    logger.info("add name=" + jpgFile.getName());
                 }
             }
         }
     }
 
+    private double[] getFeaturesImage(Mat matrix) throws IOException {
+        INDArray imageMatrix = _nativeImageLoader.asMatrix(matrix);
+        return getFeaturesImage(imageMatrix);
+    }
+
     private double[] getFeaturesImage(File file) throws IOException {
         INDArray imageMatrix = _nativeImageLoader.asMatrix(file);
-        //INDArray imageMatrix = vggImageMatrix.ravel().dup();
+        return getFeaturesImage(imageMatrix);
+    }
+
+    private double[] getFeaturesImage(INDArray imageMatrix) throws IOException {
         imagePreProcessor.transform(imageMatrix);
+        // transfer Learning
+/*
         DataSet objDataSet = new DataSet(imageMatrix, Nd4j.create(new float[]{0,0}));
         DataSet objFeaturized = _transferLearningHelper.featurize(objDataSet);
         INDArray featuresArray = objFeaturized.getFeatures();
@@ -159,34 +275,44 @@ public class RaspRecognize2 implements Runnable {
             reshapeDimension *= dimension;
         }
         featuresArray = featuresArray.reshape(1,reshapeDimension);
+        return featuresArray.data().asDouble();
+*/
 
         // VGG
-/*
-        final List<String> recognise = recognise(imageMatrix);
-        logger.info("recognise" + recognise);
-*/
+        //final INDArray recognise = recognise(imageMatrix);
         // Yolo2
         Yolo2OutputLayer outputLayer = (Yolo2OutputLayer) computationGraph.getOutputLayer(0);
         INDArray results = computationGraph.outputSingle(imageMatrix);
         List<DetectedObject> detectedObjects = outputLayer.getPredictedObjects(results, 0.4);
-        detectedObjects.forEach(d -> {
-            logger.info(String.format("#   objects detected class=%s, x1=%s, y1=%s", labels[d.getPredictedClass()],
-                    d.getTopLeftXY()[0], d.getTopLeftXY()[1]));
-        });
-        //
-        return featuresArray.data().asDouble();
-/*
-        double nn[] =  {0};
-        return nn;
-*/
+        final DetectedObject maxDetectedObject = getMaxDetectedObject(detectedObjects);
+        if (maxDetectedObject != null) {
+            logger.info(String.format("#  objects detected class=%s, x1=%s, y1=%s, confidence=%s", labels[maxDetectedObject.getPredictedClass()],
+                    maxDetectedObject.getTopLeftXY()[0], maxDetectedObject.getTopLeftXY()[1], maxDetectedObject.getConfidence()));
+        }
+        // Yolo2
+        return results.data().asDouble();
+        // VGG
+        //return recognise.data().asDouble();
     }
 
-    public List<String> recognise(INDArray imageMatrix) throws IOException {
+    private DetectedObject getMaxDetectedObject(List<DetectedObject> detectedObjects) {
+        return detectedObjects.stream()
+                .max(Comparator.comparing(DetectedObject::getConfidence))
+                .orElse(null);
+    }
+
+    // VGG
+    private INDArray recognise(INDArray imageMatrix) throws IOException {
         INDArray[] output = computationGraph.output(false, imageMatrix);
-        return predict(output[0]);
+        //return predict(output[0]);  // image net
+        // VGG face
+        return predictFace(output[0]);  // face
+        //INDArray outputA = Nd4j.concat(0, output);
+        //return predictFace(outputA);  // face
     }
 
-   private List<String> predict(INDArray predictions) throws IOException {
+    // VGG imageNet
+   private INDArray predict(INDArray predictions) throws IOException {
        List<String> objects = new ArrayList<>();
        int topN = 3;
        int[] topNPredictions = new int[topN];
@@ -194,6 +320,7 @@ public class RaspRecognize2 implements Runnable {
        String[] outLabels = new String[topN];
        //brute force collect top N
        int i = 0;
+       INDArray topPredict = predictions.getRow(0).dup();
        for (int batch = 0; batch < predictions.size(0); batch++) {
            INDArray currentBatch = predictions.getRow(batch).dup();
            while (i < topN) {
@@ -201,27 +328,58 @@ public class RaspRecognize2 implements Runnable {
                topNProb[i] = currentBatch.getFloat(batch, topNPredictions[i]);
                currentBatch.putScalar(0, topNPredictions[i], 0);
                outLabels[i] = imageNetLabels.getLabel(topNPredictions[i]);
+               //final String s = imageNetLabels.decodePredictions(currentBatch);
                if (topNProb[i] > 0.4) {
-                   objects.add(String.format("Label=%s, %s, %s", outLabels[i],
-                           outLabels[i], topNProb[i]));
+                   objects.add(String.format("Label=%s, prob=%s", outLabels[i], topNProb[i]));
                }
                i++;
            }
        }
-       return objects;
+       logger.info("predict: " + objects);
+       return topPredict;
    }
 
-/*
-    private INDArray getFeaturesImage2(File file) throws IOException {
-        INDArray imageMatrix = _nativeImageLoader.asMatrix(file);
-        _scaler.transform(imageMatrix);
-        return forwardPass(normalize(imageMatrix));
+   // VGG face
+    private INDArray predictFace(INDArray predictions) throws IOException {
+        List<String> objects = new ArrayList<>();
+        int topN = 3;
+        int[] topNPredictions = new int[topN];
+        float[] topNProb = new float[topN];
+        int[] outLabels = new int[topN];
+        //brute force collect top N
+        int i = 0;
+        INDArray topPredict = predictions.getRow(0).dup();
+        logger.info(decodePredictions(predictions));
+        return topPredict;
     }
 
-    private static INDArray normalize(INDArray read) {
-        return read.div(255.0);
+    // VGG face
+    private String decodePredictions(INDArray predictions) {
+        String predictionDescription = "";
+        int[] top3 = new int[3];
+        float[] top3Prob = new float[3];
+
+        //brute force collect top 5
+        int i = 0;
+        for (int batch = 0; batch < predictions.size(0); batch++) {
+            predictionDescription += "Predictions for batch ";
+            if (predictions.size(0) > 1) {
+                predictionDescription += String.valueOf(batch);
+            }
+            predictionDescription += " :";
+            INDArray currentBatch = predictions.getRow(batch).dup();
+            while (i < 3) {
+                top3[i] = Nd4j.argMax(currentBatch, 1).getInt(0);
+                top3Prob[i] = currentBatch.getFloat(batch, top3[i]);
+                currentBatch.putScalar(0, top3[i], 0);
+                predictionDescription += "\n\t" + String.format("%3f", top3Prob[i] * 100) + "%, "
+                        + top3[i];
+                i++;
+            }
+        }
+        return predictionDescription;
     }
-*/
+
 
 
 }

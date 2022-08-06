@@ -129,7 +129,7 @@ public class RaspRecognize implements Runnable  {
                     } else {
                         logger.info(String.format("similarFace=%s, wav=%s", similarFaceModel.getFaceFilePath(), similarFaceModel.getWavFilePath()));
                         if (similarFaceModel.getWavFilePath() != null) {
-                            playShell(similarFaceModel.getWavFilePath());
+                            RaspUtils.playShell(similarFaceModel.getWavFilePath());
                         }
                     }
                 }
@@ -195,10 +195,10 @@ public class RaspRecognize implements Runnable  {
                 if (folderEntry.isDirectory()) {
                     listFiles = folderEntry.listFiles();
                     //logger.info("listFiles=" + listFiles);
-                    final File faceFileJpg = getFileByType(listFiles, "jpg");
+                    final File faceFileJpg = RaspUtils.getFileByType(listFiles, "jpg");
                     if (faceFileJpg != null) {
                         //logger.info("load faceFile=" + faceFileJpg.getPath());
-                        File jsonFile = getFileByType(listFiles, "json");
+                        File jsonFile = RaspUtils.getFileByType(listFiles, "json");
                         final VectorModel vectorModel;
                         final ObjectMapper objectMapper = new ObjectMapper();
                         if (jsonFile != null) {
@@ -211,7 +211,7 @@ public class RaspRecognize implements Runnable  {
                             objectMapper.writeValue(jsonFile, vectorModel);
                         }
                         //
-                        final File wavFile = getFileByType(listFiles, "wav_");
+                        final File wavFile = RaspUtils.getFileByType(listFiles, "wav_");
                         if (wavFile != null) {
                             //final String wavPath = FileUtils.readFileToString(wavFile, "UTF8");
                             String wav = applicationConfig.getTrainVoicePath() + FilenameUtils.removeExtension(wavFile.getName()) + ".wav";
@@ -228,26 +228,8 @@ public class RaspRecognize implements Runnable  {
         }
     }
 
-    private File getFileByType(File[] files, String type) {
-        List<File> faceFiles = Arrays.stream(files)
-                .filter(f -> type.equalsIgnoreCase(FilenameUtils.getExtension(f.getName()))).collect(Collectors.toList());
-        if (!faceFiles.isEmpty()) {
-            return faceFiles.get(0);
-        }
-        return null;
-    }
-
     private double euclideanDistance(INDArray array1, INDArray array2) {
         return array1.distance2(array2);
-    }
-
-    public void playShell(String path) {
-        String cmd =  "aplay " + path;
-        try {
-            Process script_exec = Runtime.getRuntime().exec(cmd);
-        } catch (IOException e) {
-            logger.error("error play", e);
-        }
     }
 
     public void play(String path) {

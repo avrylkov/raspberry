@@ -1,11 +1,8 @@
 package com.example.raspberry;
 
-import org.nd4j.linalg.api.ndarray.INDArray;
-
 public class VectorModel2 {
 
     private double[] vector;
-    private INDArray indArray;
     private String faceFilePath;
     private String name;
 
@@ -15,12 +12,6 @@ public class VectorModel2 {
 
     public VectorModel2(double[] vector, String faceFilePath, String name) {
         this.vector = vector;
-        this.faceFilePath = faceFilePath;
-        this.name = name;
-    }
-
-    public VectorModel2(INDArray indArray, String faceFilePath, String name) {
-        this.indArray = indArray;
         this.faceFilePath = faceFilePath;
         this.name = name;
     }
@@ -37,7 +28,4 @@ public class VectorModel2 {
         return name;
     }
 
-    public INDArray getIndArray() {
-        return indArray;
-    }
 }

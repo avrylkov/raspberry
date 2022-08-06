@@ -7,6 +7,10 @@ import com.diozero.devices.PCA9685;
 import org.bytedeco.javacpp.Loader;
 import org.bytedeco.opencv.opencv_java;
 import org.opencv.core.Core;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.videoio.VideoCapture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -202,12 +206,42 @@ public class RaspController {
         return "OpenCV: " + on;
     }
 
+    @RequestMapping(value = "/cvcam/{on}", method = RequestMethod.GET)
+    public ResponseEntity<byte[]> cvCamControl(@PathVariable int on) {
+        if (!isInitOpenCV) {
+            //OpenCV.loadShared();
+            System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+            isInitOpenCV = true;
+        }
+        VideoCapture capture = new VideoCapture(0);
+        Mat matrix = new Mat();
+        capture.read(matrix);
+        byte[] data  = new byte[0];
+        if( capture.isOpened()) {
+            if (capture.read(matrix)) {
+                MatOfByte buf = new MatOfByte();
+                Imgcodecs.imencode(".jpg", matrix, buf);
+                data = buf.toArray();
+            }
+        }
+        capture.release();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setCacheControl(CacheControl.noCache().getHeaderValue());
+        headers.setContentType(MediaType.IMAGE_JPEG);
+        headers.setContentLength(data.length);
+        ResponseEntity<byte[]> responseEntity = new ResponseEntity<>(data, headers, HttpStatus.OK);
+        return responseEntity;
+    }
 
     private RaspRecognize2 imageRecognize2;
 
     @RequestMapping(value = "/train2/{name}", method = RequestMethod.GET)
     public String train2Control(@PathVariable String name) {
         if ("1".equals(name)) {
+            if (!isInitOpenCV) {
+                System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+                isInitOpenCV = true;
+            }
             imageRecognize2 = new RaspRecognize2(applicationConfig);
             recognizeTread = new Thread(imageRecognize2);
             recognizeTread.start();
@@ -217,7 +251,7 @@ public class RaspController {
         } else {
             imageRecognize2.setFace(name);
         }
-        return "train2Control " + name;
+        return "train2Control=" + name;
     }
 
     @RequestMapping(value = "/train/{on}", method = RequestMethod.GET)
@@ -252,7 +286,7 @@ public class RaspController {
             recognizeTread.interrupt();
             recognizeTread = null;
         }
-        return "recognize : " + on;
+        return "recognize=" + on;
     }
 
     @GetMapping("/info")
