@@ -97,11 +97,13 @@
 		</dependency>
 
 		<!-- https://mvnrepository.com/artifact/org.openpnp/opencv -->
-		<!--dependency>
+<!--
+		<dependency>
 			<groupId>org.openpnp</groupId>
 			<artifactId>opencv</artifactId>
 			<version>4.5.1-2</version>
-		</dependency-->
+		</dependency>
+-->
 
 		<dependency>
 			<groupId>org.nd4j</groupId>
@@ -124,6 +126,12 @@
 			<groupId>org.deeplearning4j</groupId>
 			<artifactId>deeplearning4j-zoo</artifactId>
 			<version>1.0.0-M1</version>
+		</dependency>
+
+		<dependency>
+			<groupId>com.github.javafaker</groupId>
+			<artifactId>javafaker</artifactId>
+			<version>0.12</version>
 		</dependency>
 
 <!--		<dependency>-->

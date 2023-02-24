@@ -1,48 +1,41 @@
 package com.example.raspberry;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.javafaker.Faker;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.datavec.image.loader.NativeImageLoader;
-import org.deeplearning4j.nn.conf.WorkspaceMode;
+import org.deeplearning4j.nn.api.Layer;
 import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.deeplearning4j.nn.layers.objdetect.DetectedObject;
 import org.deeplearning4j.nn.layers.objdetect.Yolo2OutputLayer;
 import org.deeplearning4j.nn.transferlearning.TransferLearningHelper;
 import org.deeplearning4j.zoo.PretrainedType;
 import org.deeplearning4j.zoo.ZooModel;
-import org.deeplearning4j.zoo.model.TinyYOLO;
-import org.deeplearning4j.zoo.model.VGG16;
+import org.deeplearning4j.zoo.model.*;
 import org.deeplearning4j.zoo.util.imagenet.ImageNetLabels;
-import org.nd4j.common.base.Preconditions;
 import org.nd4j.linalg.api.ndarray.INDArray;
-import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.preprocessor.DataNormalization;
 import org.nd4j.linalg.dataset.api.preprocessor.ImagePreProcessingScaler;
-import org.nd4j.linalg.dataset.api.preprocessor.VGG16ImagePreProcessor;
 import org.nd4j.linalg.factory.Nd4j;
-import org.opencv.core.Mat;
-import org.opencv.core.MatOfRect;
-import org.opencv.core.Rect;
+import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
 import org.opencv.objdetect.CascadeClassifier;
 import org.opencv.videoio.VideoCapture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.example.raspberry.RaspConstant.HAAR_CASCADE_XML;
+import static org.opencv.imgproc.Imgproc.FONT_HERSHEY_PLAIN;
 
 public class RaspRecognize2 implements Runnable {
 
@@ -56,6 +49,7 @@ public class RaspRecognize2 implements Runnable {
     private ComputationGraph computationGraph;
     private List<VectorModel2> memberModels = new ArrayList<>();
     private AtomicReference<String> compareFace = new AtomicReference<>("");
+    private AtomicReference<String> folder = new AtomicReference<>("");
     private VideoCapture videoCapture;
     private CascadeClassifier faceDetector;
     private static String[] labels = {"aeroplane","bicycle","bird","boat","bottle","bus","car","cat","chair","cow",
@@ -74,6 +68,10 @@ public class RaspRecognize2 implements Runnable {
         compareFace.set(imageName);
     }
 
+    public void setFolder(String name) {
+        folder.set(name);
+    }
+
     @Override
     public void run() {
         try {
@@ -82,31 +80,19 @@ public class RaspRecognize2 implements Runnable {
             }
             while (true) {
                 Thread.sleep(100);
-                double[] featuresCompareImage = new double[0];
-                List<Mat> matList = null;
+                double[] featuresCompareImage;
                 if (isCompareFileFace()) {
+                    // определить по файлу его класс и сравнить с ранее детектируемым множеством
                     featuresCompareImage = compareFileFace();
                     compareFace.set("");
+                    compareFace(featuresCompareImage, null);
                 } else if (isCompareCameraFace()) {
-                    matList = compareCameraFace();
+                    // взять изображение с камеры и сравнить с ранее детектируемым множеством один раз
+                    detectCameraFace();
                     compareFace.set("");
                 } else if (isCompareAutoCameraFace()) {
-                    matList = compareCameraFace();
-                }
-                //
-                if (CollectionUtils.isNotEmpty(matList)) {
-                    for (Mat mat : matList) {
-                        featuresCompareImage = getFeaturesImage(mat);
-                        if (featuresCompareImage.length == 0) {
-                            continue;
-                        }
-                        compareFace(featuresCompareImage, mat);
-                    }
-                } else {
-                    if (featuresCompareImage.length == 0) {
-                        continue;
-                    }
-                    compareFace(featuresCompareImage, null);
+                    // взять изображение с камеры и сравнить с ранее детектируемым множеством постоянно
+                    detectCameraFace();
                 }
             }
         } catch (InterruptedException | IOException e) {
@@ -116,7 +102,7 @@ public class RaspRecognize2 implements Runnable {
         }
     }
 
-    private void compareFace(double[] featuresCompareImage, Mat mat) {
+    private VectorModel2 compareFace(double[] featuresCompareImage, Mat mat) throws IOException {
         INDArray array1 = Nd4j.create(featuresCompareImage);
         double minimalDistance = Double.MAX_VALUE;
         VectorModel2 vectorModelResult = null;
@@ -133,23 +119,52 @@ public class RaspRecognize2 implements Runnable {
         }
         if (vectorModelResult != null && minimalDistance <= applicationConfig.getThresholdDistance()) {
             sayHello(applicationConfig.getTrainImagePath() + vectorModelResult.getName() + "/" + vectorModelResult.getName() + ".wav");
+        } else if (mat != null && vectorModelResult != null && minimalDistance > applicationConfig.getThresholdDistance()) {
+            // новое лицо
+            String newName = folder.get(); //generateNewName();
+            if (StringUtils.isEmpty(newName) || StringUtils.length(newName) == 1) {
+                logger.info("unknown face");
+                return null;
+            }
+            if ("auto".equals(newName)) {
+                newName = generateNewName();
+            }
+            final String path = applicationConfig.getTrainImagePath() + newName + "/";
+            final String fileName = face_formatter.format(LocalDateTime.now());
+            vectorModelResult = new VectorModel2(featuresCompareImage, path, newName);
+            memberModels.add(vectorModelResult);
+            //
+            FileUtils.forceMkdir(new File(path));
+            Imgcodecs.imwrite(path + fileName + ".jpg", mat);
+            final ObjectMapper objectMapper = new ObjectMapper();
+            File jsonFile = new File(path + fileName + ".json");
+            objectMapper.writeValue(jsonFile, vectorModelResult);
+            logger.info("Save new face=" + path);
         }
-        if (mat != null && vectorModelResult != null && minimalDistance > applicationConfig.getThresholdDistance()) {
-            final String path = applicationConfig.getTrainImagePath() + "other/";
-            final String name = face_formatter.format(LocalDateTime.now()) + ".jpg";
-            Imgcodecs.imwrite(path + name, mat);
-            VectorModel2 vectorModel = new VectorModel2(featuresCompareImage, path, name);
-            memberModels.add(vectorModel);
-            logger.info("Save face=" + name);
-        }
+        return vectorModelResult;
+    }
+
+    private String generateNewName() {
+        Faker faker = new Faker();
+        String[] firstName = new String[1];
+        do {
+             firstName[0] = faker.name().firstName();
+        } while (memberModels.stream().anyMatch(m -> firstName[0].equals(m.getName())));
+        return firstName[0];
     }
 
     private boolean init() throws IOException {
         logger.info("Running Recognize, Loading DL4J.  ");
         ZooModel objZooModel = TinyYOLO.builder().build();
+        //ZooModel objZooModel = NASNet.builder().build();
         //ZooModel objZooModel = VGG16.builder().build();
+        //ZooModel objZooModel = ResNet50.builder().build();
+        //ZooModel objZooModel = SqueezeNet.builder().build();
+        //ZooModel objZooModel = UNet.builder().build();
+        //ZooModel objZooModel = YOLO2.builder().build();
         try {
             computationGraph = (ComputationGraph) objZooModel.initPretrained(PretrainedType.IMAGENET);
+            //computationGraph = (ComputationGraph) objZooModel.initPretrained(PretrainedType.SEGMENT);
             //computationGraph = (ComputationGraph) objZooModel.initPretrained(PretrainedType.VGGFACE);
         } catch (IOException e) {
             logger.error("error objZooModel", e);
@@ -197,28 +212,44 @@ public class RaspRecognize2 implements Runnable {
         return getFeaturesImage(compareFaceImage);
     }
 
-    private List<Mat> compareCameraFace() throws IOException {
+    private void detectCameraFace() throws IOException {
         List<Mat> matList = new ArrayList<>();
         if (videoCapture.isOpened()) {
             Mat matrix = new Mat();
             videoCapture.read(matrix);
             MatOfRect faceDetections = new MatOfRect();
+            //
             faceDetector.detectMultiScale(matrix, faceDetections, 1.3);
+            //
             if (faceDetections.toArray().length > 0) {
                 logger.info(String.format("detected %s faces", faceDetections.toArray().length));
                 for (Rect rect : faceDetections.toArray()) {
                     //final Optional<Rect> faceRectMax = RaspUtils.getFaceRectMax(faceDetections.toArray());
                     //if (faceRectMax.isPresent()) {
                     //    final Rect rect = faceRectMax.get();
-                    matList.add(matrix.submat(rect));
+
+                    Scalar colorG = new Scalar(0, 128, 0); // (B,G,R)
+                    Imgproc.rectangle(matrix, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height),
+                            colorG, 2);
+
+                    final Mat subMat = matrix.submat(rect);
+                    matList.add(subMat);
+                    //
+                    double[] featuresCompareImage = getFeaturesImage(subMat);
+                    final VectorModel2 vectorModel = compareFace(featuresCompareImage, subMat);
+                    //
+                    if (vectorModel != null) {
+                        Scalar colorR = new Scalar(0, 0, 128);
+                        Imgproc.putText(matrix, vectorModel.getName(), new Point(rect.x, rect.y),
+                                FONT_HERSHEY_PLAIN, 1.5, colorR, 2);
+                    }
                 }
-            } else {
-                Imgcodecs.imwrite(applicationConfig.getHome() + "camera.jpg", matrix);
             }
+            Imgcodecs.imwrite(applicationConfig.getHome() + "camera.jpg", matrix);
         } else {
             logger.warn("camera !isOpened");
         }
-        return matList;
+        //return matList;
     }
 
     private double euclideanDistance(INDArray array1, INDArray array2) {
@@ -282,7 +313,19 @@ public class RaspRecognize2 implements Runnable {
         //final INDArray recognise = recognise(imageMatrix);
         // Yolo2
         Yolo2OutputLayer outputLayer = (Yolo2OutputLayer) computationGraph.getOutputLayer(0);
+        // NASnet
+        final Layer outputLayer1 = computationGraph.getOutputLayer(0);
         INDArray results = computationGraph.outputSingle(imageMatrix);
+        //logger.info(results.toString());
+        //logger.info(results.getRow(0).dup().toString());
+        //logger.info(results.argMax(1).toString());
+        //
+        final double[] doubles = Arrays.stream(results.data().asDouble()).sorted().toArray();
+        final double[] topDoubles = new double[3];
+        System.arraycopy(doubles, doubles.length - 3, topDoubles, 0, 3);
+        logger.info("topDoubles= " + Arrays.asList(topDoubles[0], topDoubles[1], topDoubles[2]).toString());
+        //
+
         List<DetectedObject> detectedObjects = outputLayer.getPredictedObjects(results, 0.4);
         final DetectedObject maxDetectedObject = getMaxDetectedObject(detectedObjects);
         if (maxDetectedObject != null) {
@@ -294,6 +337,8 @@ public class RaspRecognize2 implements Runnable {
         // VGG
         //return recognise.data().asDouble();
     }
+
+
 
     private DetectedObject getMaxDetectedObject(List<DetectedObject> detectedObjects) {
         return detectedObjects.stream()

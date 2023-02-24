@@ -235,21 +235,25 @@ public class RaspController {
 
     private RaspRecognize2 imageRecognize2;
 
-    @RequestMapping(value = "/train2/{name}", method = RequestMethod.GET)
-    public String train2Control(@PathVariable String name) {
-        if ("1".equals(name)) {
+    @RequestMapping(value = "/train2", method = RequestMethod.GET)
+    public String train2Control(@RequestParam String name, @RequestParam String folder) {
+        if ("0".equals(name) && recognizeTread != null) {
+            recognizeTread.interrupt();
+            imageRecognize2 = null;
+        } else {
             if (!isInitOpenCV) {
                 System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
                 isInitOpenCV = true;
             }
-            imageRecognize2 = new RaspRecognize2(applicationConfig);
-            recognizeTread = new Thread(imageRecognize2);
-            recognizeTread.start();
-        } else if ("0".equals(name)) {
-            recognizeTread.interrupt();
-            imageRecognize2 = null;
-        } else {
+            if (imageRecognize2 == null) {
+                imageRecognize2 = new RaspRecognize2(applicationConfig);
+                recognizeTread = new Thread(imageRecognize2);
+            }
             imageRecognize2.setFace(name);
+            imageRecognize2.setFolder(folder);
+            if (recognizeTread.getState() == Thread.State.NEW) {
+                recognizeTread.start();
+            }
         }
         return "train2Control=" + name;
     }

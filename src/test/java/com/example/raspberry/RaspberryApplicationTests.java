@@ -1,7 +1,16 @@
 package com.example.raspberry;
 
+import com.github.javafaker.Faker;
 import org.junit.jupiter.api.Test;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfDMatch;
+import org.opencv.core.MatOfKeyPoint;
 import org.opencv.core.Rect;
+import org.opencv.features2d.BOWImgDescriptorExtractor;
+import org.opencv.features2d.DescriptorMatcher;
+import org.opencv.features2d.FastFeatureDetector;
+import org.opencv.features2d.Feature2D;
+import org.opencv.imgcodecs.Imgcodecs;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
@@ -43,9 +52,37 @@ class RaspberryApplicationTests {
         }
     }
 
+    @Test
+    public void fakerTest() {
+        Faker faker = new Faker();
+        System.out.println(faker.name().firstName());
+        System.out.println(faker.name().firstName());
+        System.out.println(faker.name().firstName());
+    }
+
     private int centerFaceX(Rect rect) {
         return W_CENTER + rect.width/2;
     }
+
+
+    public void openCvKeyPoints() {
+        Mat img1 = Imgcodecs.imread("C:\\book\\opencv\\foto3.png");
+        Mat img2 = Imgcodecs.imread("C:\\book\\opencv\\foto3.png");
+        //
+        MatOfKeyPoint kp1 = new MatOfKeyPoint();
+        MatOfKeyPoint kp2 = new MatOfKeyPoint();
+        FastFeatureDetector fuFeatureDetector = FastFeatureDetector.create();
+        fuFeatureDetector.detect(img1, kp1);
+        fuFeatureDetector.detect(img2, kp2);
+
+
+
+        DescriptorMatcher descriptorMatcher = DescriptorMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING);
+        MatOfDMatch matches = new MatOfDMatch();
+        descriptorMatcher.match(img1, img2, matches);
+    }
+
+
 
 
 }
