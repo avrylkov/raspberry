@@ -119,7 +119,7 @@ public class RaspRecognize2 implements Runnable {
         }
         if (vectorModelResult != null && minimalDistance <= applicationConfig.getThresholdDistance()) {
             sayHello(applicationConfig.getTrainImagePath() + vectorModelResult.getName() + "/" + vectorModelResult.getName() + ".wav");
-        } else if (mat != null && vectorModelResult != null && minimalDistance > applicationConfig.getThresholdDistance()) {
+        } else if (mat != null && minimalDistance > applicationConfig.getThresholdDistance()) {
             // новое лицо
             String newName = folder.get(); //generateNewName();
             if (StringUtils.isEmpty(newName) || StringUtils.length(newName) == 1) {
