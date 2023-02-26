@@ -41,6 +41,7 @@ public class RaspRecognize2 implements Runnable {
 
     private final Logger logger = LoggerFactory.getLogger(RaspRecognize.class);
 
+    private static final String AUTO_MODE = "auto";
     private DateTimeFormatter face_formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HHmmss.SSS");
     private NativeImageLoader _nativeImageLoader;
     private TransferLearningHelper _transferLearningHelper;
@@ -126,7 +127,7 @@ public class RaspRecognize2 implements Runnable {
                 logger.info("unknown face");
                 return null;
             }
-            if ("auto".equals(newName)) {
+            if (AUTO_MODE.equals(newName)) {
                 newName = generateNewName();
             }
             final String path = applicationConfig.getTrainImagePath() + newName + "/";
@@ -195,7 +196,7 @@ public class RaspRecognize2 implements Runnable {
     }
 
     private boolean isCompareAutoCameraFace() {
-        return "auto".equals(compareFace.get());
+        return AUTO_MODE.equals(compareFace.get());
     }
 
     private boolean isCompareFileFace() {
